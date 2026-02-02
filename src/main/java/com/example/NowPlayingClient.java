@@ -40,7 +40,6 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
     private static volatile boolean imageLoaded = false;
     private static volatile boolean currentIsSpotify = false;
 
-    // ✅ Real texture size (prevents tiling/repeating when scaling)
     private static volatile int coverTexW = 0;
     private static volatile int coverTexH = 0;
 
@@ -66,9 +65,9 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
 
         GuiRegistry registry = AutoConfig.getGuiRegistry(NowPlayingConfig.class);
         registry.registerPredicateProvider(
-                (i18n, field, config, defaults, guiRegistry) -> new CustomSideGuiProvider().get(i18n, field, config, defaults, guiRegistry),
-                field -> field.getType().equals(NowPlayingConfig.Side.class)
-        );
+                (i18n, field, config, defaults, guiRegistry) -> new CustomSideGuiProvider().get(i18n, field, config,
+                        defaults, guiRegistry),
+                field -> field.getType().equals(NowPlayingConfig.Side.class));
 
         if (!NowPlayingFileManager.ensureExecutableReady()) {
             System.err.println("[NowPlayingMod] Failed to prepare C# executable. Mod functionality might be limited.");
@@ -83,10 +82,12 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
         launchCSharpScript();
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
-            System.out.println("[NowPlayingMod] Minecraft server stopped event detected. Attempting to stop C# server.");
+            System.out
+                    .println("[NowPlayingMod] Minecraft server stopped event detected. Attempting to stop C# server.");
             stopCSharpScript();
         });
 
+        // Poll the local companion server in the background so the HUD can stay responsive
         CompletableFuture.runAsync(() -> {
             while (true) {
                 if (csharpProcess != null && csharpProcess.isAlive()) {
@@ -118,7 +119,6 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                             boolean newIsSpotify = newAppName.toLowerCase().contains("spotify");
                             String newStatus = extractJsonValue(json, "status");
 
-                            // Set the isPlaying field based on the status from the C# server
                             isPlaying = newStatus.equals("Playing");
 
                             boolean textChanged = !newMediaTitle.equals(cachedMediaTitle) ||
@@ -158,8 +158,7 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                                 targetPositionSec = 0.0;
                                 targetEndSec = 0.0;
                             }
-
-                            // Get media image
+                            // Fetch the current album art image from the local server
                             try {
                                 URL imgUrl = new URL("http://localhost:58888/media_image.jpg");
                                 HttpURLConnection imgConn = (HttpURLConnection) imgUrl.openConnection();
@@ -169,26 +168,27 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                                 if (imgConn.getResponseCode() == 200) {
                                     try (InputStream input = imgConn.getInputStream()) {
                                         NativeImage fetchedImage = NativeImage.read(input);
-
-                                        // ✅ capture size (but only commit when we actually register the texture)
+                                // Cache the image dimensions for correct scaling on the HUD
                                         final int fetchedW = fetchedImage.getWidth();
                                         final int fetchedH = fetchedImage.getHeight();
 
-                                        boolean imageNeedsUpdate = isImageNeedsUpdate(fetchedImage, textChanged, appTypeChanged);
+                                        boolean imageNeedsUpdate = isImageNeedsUpdate(fetchedImage, textChanged,
+                                                appTypeChanged);
 
                                         if (imageNeedsUpdate) {
                                             final NativeImage finalImageToRegister = fetchedImage;
 
                                             MinecraftClient.getInstance().execute(() -> {
                                                 try {
-                                                    // Clean up old texture
-                                                    MinecraftClient.getInstance().getTextureManager().destroyTexture(nowPlayingImageId);
-
-                                                    // Register new texture
-                                                    NativeImageBackedTexture texture = new NativeImageBackedTexture(() -> "nowplaying_media", finalImageToRegister);
-                                                    MinecraftClient.getInstance().getTextureManager().registerTexture(nowPlayingImageId, texture);
-
-                                                    // ✅ commit real dimensions so scaling doesn't tile
+                                // Remove the previous texture so we do not leak GPU memory
+                                                    MinecraftClient.getInstance().getTextureManager()
+                                                            .destroyTexture(nowPlayingImageId);
+                                // Register the new texture with Minecraft's texture manager
+                                                    NativeImageBackedTexture texture = new NativeImageBackedTexture(
+                                                            () -> "nowplaying_media", finalImageToRegister);
+                                                    MinecraftClient.getInstance().getTextureManager()
+                                                            .registerTexture(nowPlayingImageId, texture);
+                                // Store the real image size so drawing does not tile or crop incorrectly
                                                     coverTexW = fetchedW;
                                                     coverTexH = fetchedH;
 
@@ -199,12 +199,14 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                                                     coverTexH = 0;
 
                                                     finalImageToRegister.close();
-                                                    if (cachedImage == finalImageToRegister) cachedImage = null;
-                                                    System.err.println("[NowPlaying] Failed to register texture: " + e.getMessage());
+                                                    if (cachedImage == finalImageToRegister)
+                                                        cachedImage = null;
+                                                    System.err.println("[NowPlaying] Failed to register texture: "
+                                                            + e.getMessage());
                                                 }
                                             });
                                         } else {
-                                            // Keep existing texture & dims
+                                // If we cannot load a new image, keep the last valid texture and size
                                             fetchedImage.close();
                                         }
                                     }
@@ -217,9 +219,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                                         cachedImage.close();
                                         cachedImage = null;
                                     }
-                                    MinecraftClient.getInstance().execute(() ->
-                                            MinecraftClient.getInstance().getTextureManager().destroyTexture(nowPlayingImageId)
-                                    );
+                                    MinecraftClient.getInstance().execute(() -> MinecraftClient.getInstance()
+                                            .getTextureManager().destroyTexture(nowPlayingImageId));
                                 }
                                 imgConn.disconnect();
                             } catch (Exception ex) {
@@ -234,9 +235,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                                     cachedImage.close();
                                     cachedImage = null;
                                 }
-                                MinecraftClient.getInstance().execute(() ->
-                                        MinecraftClient.getInstance().getTextureManager().destroyTexture(nowPlayingImageId)
-                                );
+                                MinecraftClient.getInstance().execute(() -> MinecraftClient.getInstance()
+                                        .getTextureManager().destroyTexture(nowPlayingImageId));
                             }
 
                         } else {
@@ -262,9 +262,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                                 cachedImage = null;
                             }
 
-                            MinecraftClient.getInstance().execute(() ->
-                                    MinecraftClient.getInstance().getTextureManager().destroyTexture(nowPlayingImageId)
-                            );
+                            MinecraftClient.getInstance().execute(() -> MinecraftClient.getInstance()
+                                    .getTextureManager().destroyTexture(nowPlayingImageId));
                         }
 
                         conn.disconnect();
@@ -292,13 +291,13 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                             cachedImage = null;
                         }
 
-                        MinecraftClient.getInstance().execute(() ->
-                                MinecraftClient.getInstance().getTextureManager().destroyTexture(nowPlayingImageId)
-                        );
+                        MinecraftClient.getInstance().execute(() -> MinecraftClient.getInstance().getTextureManager()
+                                .destroyTexture(nowPlayingImageId));
 
                         try {
                             Thread.sleep(1000);
-                        } catch (InterruptedException ignored) { }
+                        } catch (InterruptedException ignored) {
+                        }
                     }
                 } else {
                     System.out.println("[NowPlayingMod] C# server not running. Waiting for next launch attempt.");
@@ -321,11 +320,12 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             }
         });
 
+        // Draw the "now playing" panel on the HUD every frame
         HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
             MinecraftClient client = MinecraftClient.getInstance();
-            if (client.player == null || !isMediaActive) return;
-
-            // Update progress and position
+            if (client.player == null || !isMediaActive)
+                return;               
+                            // Update playback progress (used for the timeline bar)
             long now = System.nanoTime();
             double frameDeltaTime = (now - lastUpdateTime) / 1_000_000_000.0;
             lastUpdateTime = now;
@@ -348,8 +348,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             int textPadding = 6;
             int lineHeight = 10;
 
-            int baseCoverSize = 32; // minimum cover size on screen
-            int maxCoverSize = 64;  // cap so it doesn't get huge (tweak if you want)
+            int baseCoverSize = 32; 
+            int maxCoverSize = 64; 
 
             int barHeight = 2;
             int barPadding = 2;
@@ -357,46 +357,49 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             int timelineGap = 4;
             int minTimelineWidth = 80;
 
-            // Prepare text and sizing
             Text mediaTitle = Text.literal(mediaTitleText);
             Text artistName = Text.literal(artistNameText);
             int mediaTitleWidth = client.textRenderer.getWidth(mediaTitle);
             int artistNameWidth = client.textRenderer.getWidth(artistName);
 
-            // Compute content height (text + timeline)
             int textBlockHeight = 0;
-            if (config.showMediaTitle) textBlockHeight += lineHeight;
-            if (config.showArtistName) textBlockHeight += lineHeight;
+            if (config.showMediaTitle)
+                textBlockHeight += lineHeight;
+            if (config.showArtistName)
+                textBlockHeight += lineHeight;
 
             int contentHeight = 0;
-            if (textBlockHeight > 0) contentHeight += textBlockHeight;
+            if (textBlockHeight > 0)
+                contentHeight += textBlockHeight;
 
             if (config.showTimeline) {
-                if (textBlockHeight > 0) contentHeight += timelineGap;
-                contentHeight += barHeight + barPadding + lineHeight; // bar + padding + timestamps
+                if (textBlockHeight > 0)
+                    contentHeight += timelineGap;
+                contentHeight += barHeight + barPadding + lineHeight; 
             }
-
-            // Scale cover size to match content height (so padding matches)
+                // Size the cover so it visually matches the text + timeline block
             int coverSize = (imageLoaded && config.showCoverArt) ? Math.max(baseCoverSize, contentHeight) : 0;
             coverSize = Math.min(coverSize, maxCoverSize);
-
-            // Panel height uses the tallest thing (cover OR content)
+                // The panel height is whatever is taller: the cover or the text/timeline block
             int unifiedContentHeight = Math.max(contentHeight, coverSize);
             int panelHeight = unifiedContentHeight + (textPadding * 2);
-
-            // Compute text block width
+                // Compute how wide the text block needs to be
             int textBlockWidth = 0;
-            if (config.showMediaTitle) textBlockWidth = Math.max(textBlockWidth, mediaTitleWidth);
-            if (config.showArtistName) textBlockWidth = Math.max(textBlockWidth, artistNameWidth);
-            if (config.showTimeline && textBlockWidth < minTimelineWidth) textBlockWidth = minTimelineWidth;
-
-            // Panel width
+            if (config.showMediaTitle)
+                textBlockWidth = Math.max(textBlockWidth, mediaTitleWidth);
+            if (config.showArtistName)
+                textBlockWidth = Math.max(textBlockWidth, artistNameWidth);
+            if (config.showTimeline && textBlockWidth < minTimelineWidth)
+                textBlockWidth = minTimelineWidth;
+                // Total panel width includes padding + cover + gap + text
             int panelWidth = 0;
-            if (textBlockWidth > 0) panelWidth = textBlockWidth;
+            if (textBlockWidth > 0)
+                panelWidth = textBlockWidth;
 
             if (imageLoaded && config.showCoverArt) {
                 panelWidth += coverSize;
-                if (textBlockWidth > 0) panelWidth += imageTextSpacing;
+                if (textBlockWidth > 0)
+                    panelWidth += imageTextSpacing;
             }
             panelWidth += (textPadding * 2);
 
@@ -414,11 +417,9 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                     : screenWidth - panelWidth;
 
             int panelY = (int) ((screenHeight - panelHeight) * (config.yPosition / 100.0));
-
-            // Shared vertical start so top/bottom padding is equal
+                // Align everything vertically so the padding looks even
             int contentStartY = panelY + (panelHeight - unifiedContentHeight) / 2;
-
-            // Background
+                // Background panel
             if (shouldDrawPanel()) {
                 int bgColor = ((int) (config.backgroundOpacity * 2.55) << 24) | 0x000000;
                 drawContext.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, bgColor);
@@ -431,34 +432,25 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             }
 
             int currentY = contentStartY;
-
-            // Draw cover (center-cropped + scaled) — no tiling, no top-left cutoff
-            // Draw cover (no tiling, full image scaled to square)
-            // Draw cover (center-cropped, scaled correctly, MC 1.21 compatible)
+                // Draw the cover as a square: center-cropped and scaled (no tiling, no top-left cutoff)
             if (imageLoaded && config.showCoverArt && coverTexW > 0 && coverTexH > 0) {
-
-                // 1. Center-crop the largest possible square from the source image
+                // Center-crop the largest possible square from the source image
                 int srcSize = Math.min(coverTexW, coverTexH);
                 int srcU = (coverTexW - srcSize) / 2;
                 int srcV = (coverTexH - srcSize) / 2;
-
-                // 2. Draw that square, scaled to coverSize × coverSize
+                // Draw the cropped square scaled to coverSize × coverSize
                 drawContext.drawTexture(
                         RenderPipelines.GUI_TEXTURED,
                         nowPlayingImageId,
                         imageStartX,
                         contentStartY,
-                        srcU, srcV,          // source X, Y in texture
+                        srcU, srcV, // source X, Y in texture
                         coverSize, coverSize, // DESTINATION size on screen
-                        srcSize, srcSize,     // SOURCE size in texture
-                        coverTexW, coverTexH  // FULL texture size
+                        srcSize, srcSize, // SOURCE size in texture
+                        coverTexW, coverTexH // FULL texture size
                 );
             }
-
-
-
-
-            // Draw text (anchored to same contentStartY)
+                // Text (title + artist)
             currentY = contentStartY;
 
             if (config.showMediaTitle) {
@@ -469,10 +461,10 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                 drawContext.drawTextWithShadow(client.textRenderer, artistName, textStartX, currentY, 0xFFAAAAAA);
                 currentY += lineHeight;
             }
-
-            // Timeline
+                // Timeline bar
             if (config.showTimeline && targetEndSec > 0) {
-                if (config.showMediaTitle || config.showArtistName) currentY += timelineGap;
+                if (config.showMediaTitle || config.showArtistName)
+                    currentY += timelineGap;
 
                 int barY = currentY;
                 int barX = textStartX;
@@ -481,8 +473,7 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                     String playPauseSymbol = isPlaying ? "❚❚" : "▶";
                     int iconWidth = client.textRenderer.getWidth(playPauseSymbol);
                     int iconHeight = client.textRenderer.fontHeight;
-
-                    // Center icon vertically relative to bar
+                // Center the play/pause icon vertically against the bar
                     int iconY = barY - (iconHeight / 2) + (barHeight / 2);
 
                     drawContext.drawTextWithShadow(
@@ -490,8 +481,7 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                             Text.literal(playPauseSymbol),
                             textStartX,
                             iconY,
-                            0xFFFFFFFF
-                    );
+                            0xFFFFFFFF);
 
                     barX += iconWidth + 6;
                 }
@@ -506,12 +496,14 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                 String currentPosString = parseSecondsToTimeStamp(currentPositionSec);
                 String endPosString = parseSecondsToTimeStamp(currentEndSec);
 
-                drawContext.drawTextWithShadow(client.textRenderer, Text.literal(currentPosString), barX, currentY, 0xFFAAAAAA);
+                drawContext.drawTextWithShadow(client.textRenderer, Text.literal(currentPosString), barX, currentY,
+                        0xFFAAAAAA);
 
                 int endPosWidth = client.textRenderer.getWidth(endPosString);
                 int endPosTextX = barX + barWidth - endPosWidth;
 
-                drawContext.drawTextWithShadow(client.textRenderer, Text.literal(endPosString), endPosTextX, currentY, 0xFFAAAAAA);
+                drawContext.drawTextWithShadow(client.textRenderer, Text.literal(endPosString), endPosTextX, currentY,
+                        0xFFAAAAAA);
             }
         });
     }
@@ -525,14 +517,16 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
     }
 
     private boolean shouldDrawPanel() {
-        return config.showArtistName || config.showTimeline || config.showCoverArt || config.showMediaTitle || config.showPlayStatusIcon;
+        return config.showArtistName || config.showTimeline || config.showCoverArt || config.showMediaTitle
+                || config.showPlayStatusIcon;
     }
 
     private static boolean isImageNeedsUpdate(NativeImage fetchedImage, boolean textChanged, boolean appTypeChanged) {
         boolean imageNeedsUpdate;
         if (cachedImage == null) {
             imageNeedsUpdate = true;
-        } else if (fetchedImage.getWidth() != cachedImage.getWidth() || fetchedImage.getHeight() != cachedImage.getHeight()) {
+        } else if (fetchedImage.getWidth() != cachedImage.getWidth()
+                || fetchedImage.getHeight() != cachedImage.getHeight()) {
             imageNeedsUpdate = true;
         } else {
             imageNeedsUpdate = !imageLoaded || textChanged || appTypeChanged;
@@ -541,7 +535,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
     }
 
     private static String parseSecondsToTimeStamp(double seconds) {
-        if (Double.isNaN(seconds) || seconds < 0) return "0:00";
+        if (Double.isNaN(seconds) || seconds < 0)
+            return "0:00";
 
         int totalSeconds = (int) Math.round(seconds);
 
@@ -557,7 +552,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
     }
 
     private static double parseTimeToSeconds(String time) {
-        if (time == null || time.isEmpty() || time.equals("(unknown)")) return 0;
+        if (time == null || time.isEmpty() || time.equals("(unknown)"))
+            return 0;
         try {
             String[] parts = time.split(":");
             if (parts.length == 3) {
@@ -578,9 +574,11 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
     }
 
     private static String ellipsizeText(String text) {
-        if (text == null) return "";
+        if (text == null)
+            return "";
         try {
-            if (text.length() > 25) return text.substring(0, 25) + "...";
+            if (text.length() > 25)
+                return text.substring(0, 25) + "...";
             return text;
         } catch (Exception e) {
             return text;
@@ -596,17 +594,20 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             if (start != -1) {
                 start += search.length();
                 int end = json.indexOf(",", start);
-                if (end == -1) end = json.indexOf("}", start);
+                if (end == -1)
+                    end = json.indexOf("}", start);
                 if (end != -1) {
                     String valuePart = json.substring(start, end).trim();
-                    if (valuePart.equals("null")) return "";
+                    if (valuePart.equals("null"))
+                        return "";
                 }
             }
             return "(unknown)";
         }
         start += search.length();
         int end = json.indexOf("\"", start);
-        if (end == -1) return "(unknown)";
+        if (end == -1)
+            return "(unknown)";
         return json.substring(start, end);
     }
 
@@ -623,8 +624,11 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             File csharpExeFile = csharpExeFolder.resolve("ConsoleApp6.exe").toFile();
 
             if (!csharpExeFile.exists()) {
-                System.err.println("[NowPlayingMod ERROR] C# server executable not found at: " + csharpExeFile.getAbsolutePath());
-                System.err.println("[NowPlayingMod INFO] Please ensure the 'MediaInfoServer' folder from Visual Studio publish is located inside: " + modConfigDir.toAbsolutePath());
+                System.err.println(
+                        "[NowPlayingMod ERROR] C# server executable not found at: " + csharpExeFile.getAbsolutePath());
+                System.err.println(
+                        "[NowPlayingMod INFO] Please ensure the 'MediaInfoServer' folder from Visual Studio publish is located inside: "
+                                + modConfigDir.toAbsolutePath());
                 return;
             }
 
@@ -636,19 +640,22 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
             System.out.println("[NowPlayingMod] C# server launched successfully. PID: " + csharpProcess.pid());
 
             new Thread(() -> {
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(csharpProcess.getInputStream()))) {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(csharpProcess.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         System.out.println("[C# Server Output]: " + line);
                     }
                 } catch (IOException e) {
-                    System.err.println("[NowPlayingMod ERROR] Error reading C# server process output: " + e.getMessage());
+                    System.err
+                            .println("[NowPlayingMod ERROR] Error reading C# server process output: " + e.getMessage());
                 } finally {
                     System.out.println("[NowPlayingMod] C# server output stream closed.");
                 }
             }, "C# Server Output Reader").start();
 
-            Runtime.getRuntime().addShutdownHook(new Thread(NowPlayingClient::stopCSharpScript, "C# Server Shutdown Hook"));
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(NowPlayingClient::stopCSharpScript, "C# Server Shutdown Hook"));
 
         } catch (Exception e) {
             System.err.println("[NowPlayingMod ERROR] Failed to launch C# server: " + e.getMessage());
@@ -670,7 +677,8 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                System.err.println("[NowPlayingMod ERROR] Interrupted while waiting for C# server to stop: " + e.getMessage());
+                System.err.println(
+                        "[NowPlayingMod ERROR] Interrupted while waiting for C# server to stop: " + e.getMessage());
                 csharpProcess.destroyForcibly();
             } finally {
                 csharpProcess = null;

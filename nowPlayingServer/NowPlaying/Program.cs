@@ -110,7 +110,7 @@ class Program {
         if (_currentSession == null) {
             Console.WriteLine($"{DateTime.Now} No active media session to subscribe to. Clearing info.");
             ClearMediaInfo();
-            CheckAndLogMediaInfo(true); // Force log the cleared state
+            CheckAndLogMediaInfo(true); // Force an update so clients clear their HUD immediately
             return;
         }
 
@@ -178,7 +178,7 @@ class Program {
             Console.WriteLine($"{DateTime.Now} HTTP Request: {path}");
 
             try {
-                if (path == "/media-info") {
+                if (path == "/media_info") {
                     string json =
                         $"{{" +
                         $"\"title\":\"{Escape(_title)}\"," +
@@ -192,7 +192,7 @@ class Program {
                     byte[] buffer = Encoding.UTF8.GetBytes(json);
                     response.ContentType = "application/json";
                     response.OutputStream.Write(buffer, 0, buffer.Length);
-                } else if (path == "/media-image.jpg") {
+                } else if (path == "/media_image.jpg") {
                     if (_imageBytes != null) {
                         response.ContentType = "image/jpeg";
                         response.OutputStream.Write(_imageBytes, 0, _imageBytes.Length);
@@ -282,7 +282,7 @@ class Program {
                 Console.WriteLine($"{DateTime.Now} No thumbnail image available for session: {newApp}.");
             }
 
-            CheckAndLogMediaInfo(false); // Do not force initial log
+            CheckAndLogMediaInfo(false); // First poll should not spam logs if nothing is playing
         } catch (Exception ex) {
             Console.WriteLine($"{DateTime.Now} Failed to read media info during update for session {session?.SourceAppUserModelId}: {ex.Message}");
              if (session == _currentSession) {

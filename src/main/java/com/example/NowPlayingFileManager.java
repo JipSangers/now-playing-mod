@@ -42,6 +42,8 @@ public class NowPlayingFileManager {
             System.out.println("[NowPlayingMod] Extracting C# server executable to: " + TARGET_EXECUTABLE_PATH);
 
             try {
+                // Start clean: old binaries can conflict with updates
+
                 deleteDirectoryContents(TARGET_EXECUTABLE_PATH);
 
                 Optional<ModContainer> modContainer = FabricLoader.getInstance().getModContainer("nowplaying");
@@ -49,10 +51,10 @@ public class NowPlayingFileManager {
                 if (modContainer.isPresent()) {
                     Path modRootPath = modContainer.get().getRootPath();
 
-                    if (Files.isRegularFile(modRootPath)) { // Running from JAR
+                    if (Files.isRegularFile(modRootPath)) { // When packaged, the mod root is the JAR file
                         System.out.println("[NowPlayingMod] Running from JAR. Extracting from: " + modRootPath);
                         extractFromJar(modRootPath, EXECUTABLE_RESOURCE_PREFIX, TARGET_EXECUTABLE_PATH);
-                    } else if (Files.isDirectory(modRootPath)) { // Running from development environment
+                    } else if (Files.isDirectory(modRootPath)) { // In dev, resources are available as loose files
                         System.out.println("[NowPlayingMod] Running from development environment. Iterating resources.");
                         extractResourcesFromDev(EXECUTABLE_RESOURCE_PREFIX, TARGET_EXECUTABLE_PATH);
                     } else {
