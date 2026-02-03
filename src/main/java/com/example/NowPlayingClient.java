@@ -1,6 +1,7 @@
 package com.example;
 
 import java.nio.file.Path;
+import com.google.gson.Gson;
 
 import com.terraformersmc.modmenu.api.ConfigScreenFactory;
 import com.terraformersmc.modmenu.api.ModMenuApi;
@@ -28,6 +29,16 @@ import java.util.concurrent.CompletableFuture;
 public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
     private static Process csharpProcess;
     public static NowPlayingConfig config;
+    private static class MediaInfo {
+        String title;
+        String artist;
+        String app;
+        String status;
+        String position;
+        String start;
+        String end;
+    }
+
 
     private static volatile String cachedMediaTitle = null;
     private static volatile String cachedArtistName = null;
@@ -110,14 +121,21 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
 
                             String json = content.toString();
 
-                            String newMediaTitle = ellipsizeText(extractJsonValue(json, "title"));
-                            String newArtistName = ellipsizeText(extractJsonValue(json, "artist"));
-                            String newRawPosition = extractJsonValue(json, "position");
-                            String newRawStart = extractJsonValue(json, "start");
-                            String newRawEnd = extractJsonValue(json, "end");
-                            String newAppName = extractJsonValue(json, "app");
+                            Gson gson = new Gson();
+                            MediaInfo info = gson.fromJson(json, MediaInfo.class);
+
+                            String newMediaTitle = ellipsizeText(info.title != null ? info.title : "");
+                            String newArtistName = ellipsizeText(info.artist != null ? info.artist : "");
+
+                            String newRawPosition = info.position != null ? info.position : "";
+                            String newRawStart = info.start != null ? info.start : "";
+                            String newRawEnd = info.end != null ? info.end : "";
+
+                            String newAppName = info.app != null ? info.app : "";
                             boolean newIsSpotify = newAppName.toLowerCase().contains("spotify");
-                            String newStatus = extractJsonValue(json, "status");
+
+                            String newStatus = info.status != null ? info.status : "";
+
 
                             isPlaying = newStatus.equals("Playing");
 
@@ -583,32 +601,6 @@ public class NowPlayingClient implements ClientModInitializer, ModMenuApi {
         } catch (Exception e) {
             return text;
         }
-    }
-
-    private static String extractJsonValue(String json, String key) {
-        String search = "\"" + key + "\":\"";
-        int start = json.indexOf(search);
-        if (start == -1) {
-            search = "\"" + key + "\":";
-            start = json.indexOf(search);
-            if (start != -1) {
-                start += search.length();
-                int end = json.indexOf(",", start);
-                if (end == -1)
-                    end = json.indexOf("}", start);
-                if (end != -1) {
-                    String valuePart = json.substring(start, end).trim();
-                    if (valuePart.equals("null"))
-                        return "";
-                }
-            }
-            return "(unknown)";
-        }
-        start += search.length();
-        int end = json.indexOf("\"", start);
-        if (end == -1)
-            return "(unknown)";
-        return json.substring(start, end);
     }
 
     private static void launchCSharpScript() {

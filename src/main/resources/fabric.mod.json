@@ -9,9 +9,9 @@
 	],
 	"contact": {
 		"email": "jipsangers@gmail.com",
-		"homepage": "https://modrinth.com/mod/now-playing-mod",
-		"sources": "https://github.com/rxphyy/now-playing",
-		"issues": "https://github.com/rxphyy/now-playing/issues"
+		"homepage": "https://modrinth.com/mod/now-playing-mc",
+		"sources": "https://github.com/rxphyy/now-playing-mc",
+		"issues": "https://github.com/rxphyy/now-playing-mc/issues"
 	},
 	"license": "CC0-1.0",
 	"icon": "assets/nowplaying/icon.png",
@@ -25,7 +25,7 @@
 		"nowplaying.mixins.json"
 	],
 	"depends": {
-		"fabricloader": ">=0.16.14",
+		"fabricloader": ">=0.17.3",
 		"minecraft": "~1.21.1",
 		"java": ">=21",
 		"fabric-api": "*"
