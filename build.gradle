@@ -2,7 +2,10 @@ plugins {
     id 'net.fabricmc.fabric-loom-remap' version '1.14.7'
     id 'maven-publish'
 }
-version = project.mod_version
+def refName = System.getenv("GITHUB_REF_NAME")  // bv "v1.2.3" in Actions
+def tagVersion = (refName != null && refName.startsWith("v")) ? refName.substring(1) : null
+
+version = tagVersion ?: project.mod_version
 group = project.maven_group
 
 base {
