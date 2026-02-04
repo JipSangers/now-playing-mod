@@ -5,7 +5,6 @@ import net.fabricmc.loader.api.ModContainer;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.BufferedInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
